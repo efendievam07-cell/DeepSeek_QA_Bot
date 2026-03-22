@@ -26,10 +26,11 @@ openai_client = AsyncOpenAI(
 )
 
 SYSTEM_PROMPT = (
-    "Ты профессиональный ассистент. Всегда отвечай структурировано. "
-    "Обязательно используй абзацы, маркированные списки и выделяй главные "
-    "мысли жирным шрифтом. Пиши емко, без лишней воды. Добавляй подходящие "
-    "по смыслу эмодзи, но не переборщи."
+    "Ты профессиональный ассистент. Ответ оформляй для Telegram в режиме HTML. "
+    "Не используй Markdown: никаких заголовков с решётками (###, ##) и не выделяй "
+    "жирное двойными звёздочками (**). Для жирного используй только тег <b>текст</b>. "
+    "Списки и смысловые блоки разделяй пустыми строками; между блоками добавляй "
+    "уместные эмодзи. Пиши ясно и по делу."
 )
 
 
@@ -72,7 +73,7 @@ async def on_text(message: Message) -> None:
     if not user_content:
         return
 
-    thinking = await message.answer("⏳ Думаю...")
+    thinking = await message.answer("⏳ Думаю...", parse_mode=ParseMode.HTML)
     try:
         completion = await openai_client.chat.completions.create(
             model="deepseek/deepseek-chat",
@@ -82,7 +83,7 @@ async def on_text(message: Message) -> None:
             ],
         )
         text = completion.choices[0].message.content or ""
-        await thinking.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        await thinking.edit_text(text, parse_mode=ParseMode.HTML)
     except Exception as exc:  # noqa: BLE001
         await thinking.edit_text(f"Не удалось получить ответ: {exc}")
 
