@@ -34,7 +34,6 @@ SYSTEM_PROMPT = (
     "по смыслу эмодзи, но не переборщи."
 )
 
-
 def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
     """Убирает /ask, @username бота и слово DeepSeek из текста перед запросом к модели."""
     t = raw.strip()
@@ -45,37 +44,38 @@ def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
     return " ".join(t.split()).strip()
 
 
-def _mentions_bot(text: str, bot_username: str | None) -> bool:
-    if not bot_username:
+def _text_mentions_bot(text: str, bot_username: str | None) -> bool:
+    if not bot_username or not text:
         return False
-    u = bot_username.lower()
-    low = text.lower()
-    if f"@{u}" in low:
-        return True
-    return bool(re.match(rf"^/ask@{re.escape(u)}(\s|$)", text.strip(), re.IGNORECASE))
+    return f"@{bot_username}".lower() in text.lower()
 
 
-def _is_ask_command(text: str) -> bool:
-    return bool(re.match(r"^/ask(?:@[\w]+)?(\s|$)", text.strip(), re.IGNORECASE))
-
+def _is_reply_to_bot(message: Message) -> bool:
+    global BOT_ID
+    reply = message.reply_to_message
+    return (
+        reply is not None and
+        reply.from_user is not None and
+        BOT_ID is not None and
+        reply.from_user.id == BOT_ID
+    )
 
 def _should_handle_ai_message(message: Message) -> bool:
+    """Возвращает True, если на сообщение нужно ответить ИИ (по обновлённой логике)."""
     chat_type = message.chat.type
     if chat_type == ChatType.PRIVATE:
-        return True
-    if chat_type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+        return True  # В личке отвечаем на все сообщения
+    elif chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        # В группе и супергруппе отвечаем только при упоминании или если это ответ боту
+        if BOT_ID is None:
+            return False
+        if _is_reply_to_bot(message):
+            return True
+        if _text_mentions_bot(message.text or "", BOT_USERNAME):
+            return True
         return False
-    if BOT_ID is None:
+    else:
         return False
-
-    reply = message.reply_to_message
-    if reply and reply.from_user and reply.from_user.id == BOT_ID:
-        return True
-
-    text = message.text or ""
-    if not _is_ask_command(text):
-        return False
-    return _mentions_bot(text, BOT_USERNAME)
 
 
 @router.message(CommandStart())
