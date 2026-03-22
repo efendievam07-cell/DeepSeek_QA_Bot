@@ -35,6 +35,13 @@ SYSTEM_PROMPT = (
     "- Markdown is FORBIDDEN: no ###, ##, **, or * for formatting.\n"
     "- Use Telegram HTML only. For bold, use <b>text</b>.\n"
     "- Format lists with simple hyphen bullets (lines starting with \"- \").\n"
+    "- STRICTLY FORBIDDEN in your reply: any links or URLs (including http/https), "
+    "HTML link tags (<a>...</a>), site or publication names, or any named sources.\n"
+    "- Web search snippets in the user message are for internal reasoning only. "
+    "Output ONLY the answer itself—never echo, cite, or list sources.\n"
+    "- If snippets contain no usable facts (only bare links or noise, no substantive "
+    'content or numbers), reply with exactly: Нет данных.\n'
+    "- Never output a list of sources or references.\n"
 )
 
 
@@ -112,13 +119,15 @@ async def on_text(message: Message) -> None:
         user_message = user_content
 
     thinking = await message.answer("⏳ Думаю...", parse_mode=ParseMode.HTML)
+    # Один и тот же диалог для лички и для группы (после фильтра темы): system + user с вопросом и при необходимости web_context
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
     try:
         completion = await openai_client.chat.completions.create(
             model="deepseek/deepseek-chat",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
         )
         text = completion.choices[0].message.content or ""
         await thinking.edit_text(text, parse_mode=ParseMode.HTML)
