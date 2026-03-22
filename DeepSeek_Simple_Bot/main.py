@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.enums import ChatType, ParseMode
@@ -28,6 +29,8 @@ openai_client = AsyncOpenAI(
 SYSTEM_PROMPT = """Ты — умный и полезный ИИ-ассистент. Твоя задача — давать качественные ответы, опираясь на переданные данные из интернета.
 
 ПРАВИЛА:
+
+ДАТА И ВРЕМЯ: В начале каждого пользовательского сообщения передаётся строка «Сегодня …» — считай эту дату и время актуальными. Для вопросов вроде «что произошло сегодня» опирайся на неё и на блок «Данные из интернета». Не используй Markdown-звёздочки; жирный только через HTML <b>текст</b>.
 
 АДАПТИВНОСТЬ: Если пользователь спрашивает точный факт (курс валют, число, погоду) — дай короткий и четкий ответ с цифрой. Если вопрос открытый (советы, инструкции, 'как сделать') — дай подробный, логичный и развернутый ответ.
 
@@ -93,14 +96,14 @@ async def on_text(message: Message) -> None:
         return
 
     web_context = await get_web_search(user_content)
-    if web_context:
-        user_message = (
-            "Актуальные данные из поиска по запросу пользователя:\n"
-            f"{web_context}\n\n"
-            f"Вопрос пользователя:\n{user_content}"
-        )
-    else:
-        user_message = user_content
+
+    today = datetime.now().strftime("%d %B %Y года, день недели: %A")
+    prompt_with_date = (
+        f"ВНИМАНИЕ: Сегодня {today}. Использовать эту дату как текущую.\n\n"
+        f"Данные из интернета:\n{web_context}\n\n"
+        f"Вопрос пользователя: {message.text}"
+    )
+    user_message = prompt_with_date
 
     thinking = await message.answer("⏳ Думаю...", parse_mode=ParseMode.HTML)
     # Один и тот же диалог для лички и для группы (после фильтра темы): system + user с вопросом и при необходимости web_context
