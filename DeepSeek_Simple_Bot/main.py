@@ -7,6 +7,7 @@ from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
+from duckduckgo_search import AsyncDDGS
 from openai import AsyncOpenAI
 
 load_dotenv()
@@ -45,6 +46,27 @@ def _clean_question_for_model(raw: str) -> str:
     return " ".join(t.split()).strip()
 
 
+async def get_web_search(query: str) -> str:
+    """Поиск через DuckDuckGo; при ошибке или пустом результате — пустая строка."""
+    try:
+        async with AsyncDDGS() as ddgs:
+            # В duckduckgo-search 6.x асинхронный поиск — atext (не блокирует event loop)
+            results = await ddgs.atext(query, max_results=3)
+        if not results:
+            return ""
+        chunks: list[str] = []
+        for item in results[:3]:
+            title = (item.get("title") or "").strip()
+            body = (item.get("body") or "").strip()
+            href = (item.get("href") or "").strip()
+            block = "\n".join(x for x in (title, body, href) if x)
+            if block:
+                chunks.append(block)
+        return "\n\n".join(chunks)
+    except Exception:
+        return ""
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     await message.answer("Привет! ИИ-ассистент на базе DeepSeek.")
@@ -76,13 +98,23 @@ async def on_text(message: Message) -> None:
     if not user_content:
         return
 
+    web_context = await get_web_search(user_content)
+    if web_context:
+        user_message = (
+            "Актуальные данные из поиска по запросу пользователя:\n"
+            f"{web_context}\n\n"
+            f"Вопрос пользователя:\n{user_content}"
+        )
+    else:
+        user_message = user_content
+
     thinking = await message.answer("⏳ Думаю...", parse_mode=ParseMode.HTML)
     try:
         completion = await openai_client.chat.completions.create(
             model="deepseek/deepseek-chat",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
+                {"role": "user", "content": user_message},
             ],
         )
         text = completion.choices[0].message.content or ""
