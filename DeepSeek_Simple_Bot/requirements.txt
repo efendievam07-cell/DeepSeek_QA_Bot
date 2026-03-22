@@ -1,4 +1,4 @@
 aiogram>=3.0,<4
 openai>=1.0
 python-dotenv>=1.0
-duckduckgo-search>=6.3.7,<7
+duckduckgo-search>=8.0

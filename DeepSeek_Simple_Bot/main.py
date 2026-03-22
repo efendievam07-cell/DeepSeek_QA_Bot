@@ -7,7 +7,7 @@ from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
-from duckduckgo_search import AsyncDDGS
+from duckduckgo_search import DDGS
 from openai import AsyncOpenAI
 
 load_dotenv()
@@ -48,10 +48,13 @@ def _clean_question_for_model(raw: str) -> str:
 
 async def get_web_search(query: str) -> str:
     """Поиск через DuckDuckGo; при ошибке или пустом результате — пустая строка."""
+
+    def _sync_search() -> list[dict[str, str]]:
+        with DDGS() as ddgs:
+            return ddgs.text(query, max_results=3)
+
     try:
-        async with AsyncDDGS() as ddgs:
-            # В duckduckgo-search 6.x асинхронный поиск — atext (не блокирует event loop)
-            results = await ddgs.atext(query, max_results=3)
+        results = await asyncio.to_thread(_sync_search)
         if not results:
             return ""
         chunks: list[str] = []
