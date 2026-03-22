@@ -3,7 +3,7 @@ import os
 import re
 
 from aiogram import Bot, Dispatcher, Router
-from aiogram.enums import ChatType, ParseMode
+from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
@@ -17,9 +17,8 @@ if not BOT_TOKEN:
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Заполняются в main() через bot.get_me() до start_polling
+# username бота для _clean_question_for_model (get_me() в main())
 BOT_USERNAME: str | None = None
-BOT_ID: int | None = None
 
 router = Router()
 openai_client = AsyncOpenAI(
@@ -34,6 +33,7 @@ SYSTEM_PROMPT = (
     "по смыслу эмодзи, но не переборщи."
 )
 
+
 def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
     """Убирает /ask, @username бота и слово DeepSeek из текста перед запросом к модели."""
     t = raw.strip()
@@ -42,40 +42,6 @@ def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
         t = re.sub(rf"@{re.escape(bot_username)}\b", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\bDeepSeek\b", "", t, flags=re.IGNORECASE)
     return " ".join(t.split()).strip()
-
-
-def _text_mentions_bot(text: str, bot_username: str | None) -> bool:
-    if not bot_username or not text:
-        return False
-    return f"@{bot_username}".lower() in text.lower()
-
-
-def _is_reply_to_bot(message: Message) -> bool:
-    global BOT_ID
-    reply = message.reply_to_message
-    return (
-        reply is not None and
-        reply.from_user is not None and
-        BOT_ID is not None and
-        reply.from_user.id == BOT_ID
-    )
-
-def _should_handle_ai_message(message: Message) -> bool:
-    """Возвращает True, если на сообщение нужно ответить ИИ (по обновлённой логике)."""
-    chat_type = message.chat.type
-    if chat_type == ChatType.PRIVATE:
-        return True  # В личке отвечаем на все сообщения
-    elif chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
-        # В группе и супергруппе отвечаем только при упоминании или если это ответ боту
-        if BOT_ID is None:
-            return False
-        if _is_reply_to_bot(message):
-            return True
-        if _text_mentions_bot(message.text or "", BOT_USERNAME):
-            return True
-        return False
-    else:
-        return False
 
 
 @router.message(CommandStart())
@@ -91,15 +57,8 @@ async def on_text(message: Message) -> None:
     if re.match(r"^/start(?:@[\w]+)?(\s|$)", message.text.strip(), re.IGNORECASE):
         return
 
-    if not _should_handle_ai_message(message):
-        return
-
-    if message.chat.type == ChatType.PRIVATE:
-        user_content = message.text.strip()
-    else:
-        user_content = _clean_question_for_model(message.text, BOT_USERNAME)
-
-    if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP) and not user_content:
+    user_content = _clean_question_for_model(message.text, BOT_USERNAME)
+    if not user_content:
         return
 
     thinking = await message.answer("⏳ Думаю...")
@@ -123,9 +82,8 @@ async def main() -> None:
 
     bot = Bot(token=BOT_TOKEN)
     bot_info = await bot.get_me()
-    global BOT_USERNAME, BOT_ID
+    global BOT_USERNAME
     BOT_USERNAME = bot_info.username
-    BOT_ID = bot_info.id
 
     dp = Dispatcher()
     dp.include_router(router)
