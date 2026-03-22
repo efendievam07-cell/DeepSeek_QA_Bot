@@ -58,7 +58,7 @@ async def get_web_search(query: str) -> str:
 
     def _sync_search() -> list[dict[str, str]]:
         with DDGS() as ddgs:
-            return ddgs.text(query, max_results=3)
+            return ddgs.text(query, max_results=10)
 
     try:
         results = await asyncio.to_thread(_sync_search)
