@@ -54,18 +54,24 @@ def _clean_question_for_model(raw: str) -> str:
 
 
 async def get_web_search(query: str) -> str:
-    """Поиск через DuckDuckGo; при ошибке или пустом результате — пустая строка."""
+    """DuckDuckGo search; empty string on failure. Ru-ru region; FX-related queries get a CB/news bias."""
+
+    q_lower = query.lower()
+    if any(k in q_lower for k in ("курс", "доллар", "евро")):
+        search_query = f"{query} ЦБ РФ новости сводка"
+    else:
+        search_query = query
 
     def _sync_search() -> list[dict[str, str]]:
         with DDGS() as ddgs:
-            return ddgs.text(query, max_results=10)
+            return ddgs.text(search_query, region="ru-ru", max_results=7)
 
     try:
         results = await asyncio.to_thread(_sync_search)
         if not results:
             return ""
         chunks: list[str] = []
-        for item in results[:3]:
+        for item in results:
             title = (item.get("title") or "").strip()
             body = (item.get("body") or "").strip()
             href = (item.get("href") or "").strip()
