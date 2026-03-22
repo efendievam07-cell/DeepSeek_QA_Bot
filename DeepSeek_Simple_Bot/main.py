@@ -1,9 +1,7 @@
 import asyncio
-import base64
 import os
 import re
 from datetime import datetime
-from io import BytesIO
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ChatType, ParseMode
@@ -21,7 +19,6 @@ if not BOT_TOKEN:
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 ALLOWED_TOPIC_ID = 915
-VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "google/gemini-2.0-flash-001")
 
 router = Router()
 openai_client = AsyncOpenAI(
@@ -29,29 +26,15 @@ openai_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY,
 )
 
-SYSTEM_PROMPT = """Ты — умный и полезный ИИ-ассистент. Твоя задача — давать качественные ответы, опираясь на переданные данные из интернета.
+SYSTEM_PROMPT = """Ты — умный и полезный ИИ-ассистент. Отвечай по сути, опираясь на блок «Данные из интернета» в сообщении пользователя.
 
-ПРАВИЛА:
+Строка «Сегодня …» в начале сообщения задаёт текущую дату с сервера — используй её для вопросов про «сегодня» и актуальность.
 
-ДАТА И ВРЕМЯ: В начале каждого пользовательского сообщения передаётся строка «Сегодня …» — считай эту дату и время актуальными. Для вопросов вроде «что произошло сегодня» опирайся на неё и на блок «Данные из интернета». Не используй Markdown-звёздочки; жирный только через HTML <b>текст</b>.
+Коротко по фактам (курс, число); развёрнуто по открытым вопросам (советы, инструкции).
 
-АДАПТИВНОСТЬ: Если пользователь спрашивает точный факт (курс валют, число, погоду) — дай короткий и четкий ответ с цифрой. Если вопрос открытый (советы, инструкции, 'как сделать') — дай подробный, логичный и развернутый ответ.
+Форматирование: для жирного и акцентов используй ТОЛЬКО HTML-тег <b>текст</b>. Никакого Markdown.
 
-ФОРМАТИРОВАНИЕ: КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать Markdown (никаких ###, ##, **, *).
-
-КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать двойные звёздочки ** (как в **таком** оформлении) или любые другие символы Markdown. Для выделения — ТОЛЬКО HTML-теги: <b>текст</b>. Если ты используешь ** в ответе, сообщение не будет доставлено. Будь предельно внимателен!
-
-Списки оформляй обычными дефисами (-).
-
-БЕЗ ССЫЛОК: Никогда не выводи URL-адреса, теги <a> и названия сайтов-источников. Игнорируй их в поисковых данных. Просто дай ответ от себя."""
-
-VISION_SYSTEM_PROMPT = """You are a helpful vision assistant. Answer clearly about what you see in the image.
-
-RULES:
-- Do not use Markdown (no ###, ##, **, or * for formatting).
-- Use only HTML <b>text</b> for bold or key emphasis—never **.
-- Do not output URLs, <a> tags, or source names unless the user explicitly asks for a link.
-- If the user adds a caption with a question, answer that question using the image."""
+Списки — строки с дефисом (-). Не выводи URL, теги <a> и названия сайтов — только сформулированный ответ."""
 
 
 def _clean_question_for_model(raw: str) -> str:
@@ -123,55 +106,6 @@ async def on_text(message: Message) -> None:
         completion = await openai_client.chat.completions.create(
             model="deepseek/deepseek-chat",
             messages=messages,
-        )
-        text = completion.choices[0].message.content or ""
-        await thinking.edit_text(text, parse_mode=ParseMode.HTML)
-    except Exception as exc:  # noqa: BLE001
-        await thinking.edit_text(f"Не удалось получить ответ: {exc}")
-
-
-@router.message(F.photo)
-async def on_photo(message: Message) -> None:
-    if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-        if message.message_thread_id != ALLOWED_TOPIC_ID:
-            return
-
-    photo = message.photo[-1]
-    buf = BytesIO()
-    try:
-        file_info = await message.bot.get_file(photo.file_id)
-        await message.bot.download_file(file_info.file_path, buf)
-    except Exception:
-        await message.answer("Не удалось скачать изображение.")
-        return
-
-    raw = buf.getvalue()
-    if not raw:
-        await message.answer("Пустой файл изображения.")
-        return
-
-    b64 = base64.b64encode(raw).decode("ascii")
-    data_url = f"data:image/jpeg;base64,{b64}"
-
-    user_text = (message.caption or "").strip()
-    if not user_text:
-        user_text = "Describe the image briefly. If there is text in the image, summarize it."
-
-    thinking = await message.answer("⏳ Думаю...", parse_mode=ParseMode.HTML)
-    vision_messages: list[dict] = [
-        {"role": "system", "content": VISION_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": user_text},
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ],
-        },
-    ]
-    try:
-        completion = await openai_client.chat.completions.create(
-            model=VISION_MODEL,
-            messages=vision_messages,
         )
         text = completion.choices[0].message.content or ""
         await thinking.edit_text(text, parse_mode=ParseMode.HTML)
