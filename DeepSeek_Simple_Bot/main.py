@@ -3,9 +3,10 @@ import os
 import re
 
 from aiogram import Bot, Dispatcher, Router
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.enums import ChatType, ParseMode
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+from aiogram.utils.text_decorations import markdown_decoration
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -16,6 +17,8 @@ if not BOT_TOKEN:
     raise ValueError("ОШИБКА: BOT_TOKEN не найден. Проверь файл .env!")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+ALLOWED_TOPIC_ID = 24
 
 # username бота для _clean_question_for_model (get_me() в main())
 BOT_USERNAME: str | None = None
@@ -44,9 +47,21 @@ def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
     return " ".join(t.split()).strip()
 
 
+def _safe_markdown_v2(text: str) -> str:
+    """Экранирование для ParseMode.MARKDOWN_V2 (aiogram.utils.text_decorations)."""
+    return markdown_decoration.quote(text)
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     await message.answer("Привет! ИИ-ассистент на базе DeepSeek.")
+
+
+@router.message(Command("topic_id"))
+async def cmd_topic_id(message: Message) -> None:
+    await message.answer(
+        f"Идентификатор этой темы: {message.message_thread_id}"
+    )
 
 
 @router.message()
@@ -56,6 +71,13 @@ async def on_text(message: Message) -> None:
 
     if re.match(r"^/start(?:@[\w]+)?(\s|$)", message.text.strip(), re.IGNORECASE):
         return
+
+    if re.match(r"^/topic_id(?:@[\w]+)?(\s|$)", message.text.strip(), re.IGNORECASE):
+        return
+
+    if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        if message.message_thread_id != ALLOWED_TOPIC_ID:
+            return
 
     user_content = _clean_question_for_model(message.text, BOT_USERNAME)
     if not user_content:
@@ -71,9 +93,13 @@ async def on_text(message: Message) -> None:
             ],
         )
         text = completion.choices[0].message.content or ""
-        await thinking.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        await thinking.edit_text(
+            _safe_markdown_v2(text),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
     except Exception as exc:  # noqa: BLE001
-        await thinking.edit_text(f"Не удалось получить ответ: {exc}")
+        err = _safe_markdown_v2(f"Не удалось получить ответ: {exc}")
+        await thinking.edit_text(err, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def main() -> None:
