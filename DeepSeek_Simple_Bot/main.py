@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
-from aiogram.utils.text_decorations import markdown_decoration
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -18,10 +17,7 @@ if not BOT_TOKEN:
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-ALLOWED_TOPIC_ID = 24
-
-# username бота для _clean_question_for_model (get_me() в main())
-BOT_USERNAME: str | None = None
+ALLOWED_TOPIC_ID = 915
 
 router = Router()
 openai_client = AsyncOpenAI(
@@ -37,19 +33,12 @@ SYSTEM_PROMPT = (
 )
 
 
-def _clean_question_for_model(raw: str, bot_username: str | None) -> str:
-    """Убирает /ask, @username бота и слово DeepSeek из текста перед запросом к модели."""
+def _clean_question_for_model(raw: str) -> str:
+    """Убирает /ask и слово DeepSeek из текста перед запросом к модели."""
     t = raw.strip()
     t = re.sub(r"^/ask(?:@[\w]+)?\s*", "", t, flags=re.IGNORECASE)
-    if bot_username:
-        t = re.sub(rf"@{re.escape(bot_username)}\b", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\bDeepSeek\b", "", t, flags=re.IGNORECASE)
     return " ".join(t.split()).strip()
-
-
-def _safe_markdown_v2(text: str) -> str:
-    """Экранирование для ParseMode.MARKDOWN_V2 (aiogram.utils.text_decorations)."""
-    return markdown_decoration.quote(text)
 
 
 @router.message(CommandStart())
@@ -79,7 +68,7 @@ async def on_text(message: Message) -> None:
         if message.message_thread_id != ALLOWED_TOPIC_ID:
             return
 
-    user_content = _clean_question_for_model(message.text, BOT_USERNAME)
+    user_content = _clean_question_for_model(message.text)
     if not user_content:
         return
 
@@ -93,13 +82,9 @@ async def on_text(message: Message) -> None:
             ],
         )
         text = completion.choices[0].message.content or ""
-        await thinking.edit_text(
-            _safe_markdown_v2(text),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+        await thinking.edit_text(text, parse_mode=ParseMode.MARKDOWN)
     except Exception as exc:  # noqa: BLE001
-        err = _safe_markdown_v2(f"Не удалось получить ответ: {exc}")
-        await thinking.edit_text(err, parse_mode=ParseMode.MARKDOWN_V2)
+        await thinking.edit_text(f"Не удалось получить ответ: {exc}")
 
 
 async def main() -> None:
@@ -107,10 +92,6 @@ async def main() -> None:
         raise SystemExit("Заполните OPENROUTER_API_KEY в файле .env")
 
     bot = Bot(token=BOT_TOKEN)
-    bot_info = await bot.get_me()
-    global BOT_USERNAME
-    BOT_USERNAME = bot_info.username
-
     dp = Dispatcher()
     dp.include_router(router)
     await dp.start_polling(bot)
